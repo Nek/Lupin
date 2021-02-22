@@ -12,7 +12,7 @@ GitHubToken = config.GitHubToken
 GitHubFullRepo = config.GitHubUser + "/" + config.GitHubRepo
 GitHubBranch = config.GitHubBranch
 BotName = config.BotName
-TODOCommand = config.TODOCommand
+# TODOCommand = config.TODOCommand
 assetsFolder = config.getAssetsFolder()
 
 g = Github(GitHubToken)
@@ -67,15 +67,24 @@ def GitFileExists(path):
 def buildJournalEntry(entry, ignoreURL):
     journalEntry = ""
 
-    if(TODOCommand in entry):
-        journalEntry = config.defaultIndentLevel + " TODO " + utils.getCurrentTime() + " " + entry.replace(TODOCommand,'')
+    currentTime = utils.getCurrentTime()
+    if currentTime:
+        currentTime += " "
     else:
-        journalEntry = config.defaultIndentLevel + " " + utils.getCurrentTime() + " " + entry
+        currentTime = ""
+
+    # print(processCommandsMapping('21:40 some non todo entry T'))
+    
+    journalEntry = config.defaultIndentLevel + " " + utils.processCommandsMapping(currentTime + entry)
+    # if(TODOCommand in entry):
+    #     journalEntry = config.defaultIndentLevel + " TODO " + currentTime + entry.replace(TODOCommand,'')
+    # else:
+    #     journalEntry = config.defaultIndentLevel + " " + currentTime + entry
     
     if(not(ignoreURL)):
-        print(entry)
+        # print(entry)
         journalEntryURL = utils.containsYTURL(entry)
-        print (journalEntryURL)
+        # print (journalEntryURL)
         if(journalEntryURL):
             #title = getWebPageTitle(journalEntryURL)
             journalEntry = journalEntry.replace(journalEntryURL, '{{youtube ' + journalEntryURL +'}}')
@@ -83,7 +92,11 @@ def buildJournalEntry(entry, ignoreURL):
             journalEntryURL = utils.containsURL(entry)
             if(journalEntryURL):
                 title = utils.getWebPageTitle(journalEntryURL)
-                journalEntry = journalEntry.replace(journalEntryURL, '#' + config.BookmarkTag + ' [' + title + '](' + journalEntryURL + ')')
+                if(config.journalsFilesExtension == '.md'):
+                    journalEntry = journalEntry.replace(journalEntryURL, '#' + config.BookmarkTag + ' [' + title + '](' + journalEntryURL + ')')
+                elif(config.journalsFilesExtension == '.org'):
+                    journalEntry = journalEntry.replace(journalEntryURL, '#' + config.BookmarkTag + ' [[' + journalEntryURL + '][' + title + ']]')
+
             
     print (journalEntry)
     return journalEntry
@@ -142,3 +155,11 @@ def Git2Json(path=""):
             else:
                 AllFilesContent.append(getGitFileContent(content))
     utils.saveasJson(AllFilesContent,"GitDump.json")
+
+def updateCalendarsFile():
+    path = "pages/" + config.getcalendarFile()
+    contents = getGitFileContent(path, True)
+
+    contents = utils.generateCalendarsFile(contents)
+
+    push(path, git_messages['COMMIT_MESSAGE'].format(BotName, utils.getTimestamp()) , contents, GitHubBranch, update=True)

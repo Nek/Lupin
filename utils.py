@@ -5,12 +5,14 @@ import requests
 import hashlib
 from os.path import basename
 
-from config import ( hour24, journalsFilesFormat, journalsFilesExtension, journalsFolder, 
-                    journalsPrefix,getFirebaseBucketName, getlastNewsDisplayed, setlastNewsDisplayed
+from config import ( hour24, journalsFilesFormat, journalsFilesExtension, journalsFolder, isEntryTimestamped,
+                    journalsPrefix,getFirebaseBucketName, getlastNewsDisplayed, setlastNewsDisplayed, getcalendarFile,
+                    getCommandsMap
                   )
 
 import flashcards
 from mindmap import buildMindmapTree
+from calc import buildCalendar
 
 
 bootTime = datetime.now()
@@ -27,12 +29,15 @@ def getAnnotationPath(uri):
   return 'annotations/' + getURIHash(uri) + journalsFilesExtension
 
 def getCurrentTime():
-  dateTimeObj = datetime.now()
-
-  if(hour24 == "true"):
-    return dateTimeObj.strftime("%H:%M") 
+  if(not(isEntryTimestamped())):
+    return ''
   else:
-    return dateTimeObj.strftime("%I:%M %p")
+    dateTimeObj = datetime.now()
+
+    if(hour24 == "true"):
+      return dateTimeObj.strftime("%H:%M") 
+    else:
+      return dateTimeObj.strftime("%I:%M %p")
 
 def getTimestamp(isoFormat=False):
   dateTimeObj = datetime.now()
@@ -115,12 +120,14 @@ def getlatestNews():
   newslist = (requests.get(url)).json()
   lastNewsDisplayed = getlastNewsDisplayed()
   recentNews = []
+  lstNewsID = 0
   for news in newslist['news']:
     # print(news)
     if(news['newsid'] > int(lastNewsDisplayed)):
       recentNews.append(news['news'])
-  print(newslist['news'][len(newslist)]['newsid'])
-  setlastNewsDisplayed(newslist['news'][len(newslist)]['newsid'])
+    lstNewsID = news['newsid']
+  print(lstNewsID)
+  setlastNewsDisplayed(lstNewsID)
   return recentNews
 
 def saveasJson(content, file):
@@ -146,8 +153,8 @@ def findOrigBlock(ref):
     return(origBlock)
 
 def scanJson4Flashcards():
-  from git import Git2Json 
-  Git2Json() 
+  # from git import Git2Json 
+  # Git2Json() 
   with open('GitDump.json') as json_file:
     AllFilesContent = json.load(json_file)
 
@@ -162,8 +169,8 @@ def updateFlashCards():
     return flashcards.saveFlashcardsDB( scanJson4Flashcards() )
 
 def convert2MD(pageTitle):
-  from git import Git2Json 
-  Git2Json()
+  # from git import Git2Json 
+  # Git2Json()
 
   with open('GitDump.json') as json_file:
     AllFilesContent = json.load(json_file)  
@@ -207,8 +214,8 @@ def convert2MD(pageTitle):
   return(out)
 
 def convert2Mindmap(pageTitle):
-  from git import Git2Json 
-  Git2Json()
+  # from git import Git2Json 
+  # Git2Json()
 
   with open('GitDump.json') as json_file:
     AllFilesContent = json.load(json_file)  
@@ -218,3 +225,105 @@ def convert2Mindmap(pageTitle):
       return json.dumps(buildMindmapTree(content, pageTitle), default=lambda x: x.__dict__)
       # return json.dumps(buildMindmapTree(content, pageTitle).c[0], default=lambda x: x.__dict__)
     
+def pageExists(pageTitle):
+  # from git import Git2Json 
+  # Git2Json()
+
+  with open('GitDump.json') as json_file:
+    AllFilesContent = json.load(json_file)  
+
+  for content in AllFilesContent:
+    if ('---\ntitle: ' + pageTitle.lower()) in content.lower():
+      return True
+  
+  return False
+
+def getdateFormatter_old(): 
+
+  with open('GitDump.json') as json_file:
+    AllFilesContent = json.load(json_file)  
+  
+  # mapping = {'Y': 'yyyy', 'm': 'MM', 'd': 'dd', 'H': 'HH', 'M': 'mm', 'S': 'ss'}
+  
+  for content in AllFilesContent:
+    dateFormatter = re.findall("\n :date-formatter.*",content) # ,re.MULTILINE)
+    if dateFormatter:
+      break
+
+  if not(dateFormatter):
+    dateFormatter = '%b {th}, %Y'
+  else:
+    from string import Template
+    mapping = {'yyyy': '%Y', 'yy': '%y', 'MM': '%m', 'MMM': '%b', 'MMMM': '%B', 'dd': '%d', 'do': '{th}', 'EE': '%a', 'EEE': '%a', 'EEEEEE': '%A'}
+
+    dateFormatter = dateFormatter[0].split(':date-formatter')[1]
+    dateFormatter = dateFormatter[1:].replace('\"', ' ').rstrip() 
+    dateFormatter = (Template(dateFormatter.replace(' ', ' $')).substitute(**mapping)).strip()
+
+  print(dateFormatter)
+  return (dateFormatter)
+
+def getdateFormatter():
+  with open('GitDump.json') as json_file:
+    AllFilesContent = json.load(json_file)  
+  
+  # mapping = {'Y': 'yyyy', 'm': 'MM', 'd': 'dd', 'H': 'HH', 'M': 'mm', 'S': 'ss'}
+  
+  for content in AllFilesContent:
+    dateFormatter = re.findall("\n :date-formatter.*",content) # ,re.MULTILINE)
+    if dateFormatter:
+      break
+
+  if not(dateFormatter):
+    dateFormatter = '%b {th}, %Y'
+  else:
+    mapping = {'yyyy': '%Y', 'yy': '%y', 'MM': '%m', 'MMM': '%b', 'MMMM': '%B', 'dd': '%d', 'do': '{th}', 'EE': '%a', 'EEE': '%a', 'EEEEEE': '%A'}
+
+    def replace(match):
+        return mapping[match.group(0)]
+
+    dateFormatter = dateFormatter[0].split(':date-formatter')[1]
+    dateFormatter = dateFormatter[1:].replace('\"', ' ').rstrip() 
+
+    dateFormatter = (re.sub('|'.join(r'\b%s\b' % re.escape(s) for s in mapping), 
+        replace, dateFormatter) )
+
+  print(dateFormatter.strip())
+  return (dateFormatter.strip())
+
+def generateCalendarsFile(contents):
+  import datetime as dt
+  today = dt.date.today()
+
+  lastMonth = today.replace(day=1) - dt.timedelta(days=1)
+  nextMonth = today.replace(day=28) + dt.timedelta(days=4)
+
+
+  out = "##\n" + buildCalendar(lastMonth.year, lastMonth.month) + "\n##\n" + buildCalendar(today.year, today.month) + "\n##\n"  + buildCalendar(nextMonth.year, nextMonth.month) + "\n"
+
+  t = (re.sub('(##[\\s\n]<!--LupinCalendarBegins-->).*?(<!--LupinCalendarEnds-->)', '', contents, flags=re.DOTALL)).strip()
+
+  out += t
+ 
+  return out
+
+def processCommandsMapping(entry):
+  # import re
+  CommandsMap = getCommandsMap()
+
+  def replace(match):
+      return CommandsMap[match.group(0)]
+
+  s = (re.sub('|'.join(r'\b%s\b' % re.escape(s) for s in CommandsMap), 
+          replace, entry) )
+
+  rValue = ""
+  for _, value in CommandsMap.items():
+      if value in s:
+          rValue = s.split(value)
+          rValue = value + ' ' + (' '.join([x.strip() for x in rValue])).strip()
+  if rValue:
+    return rValue
+  else:
+    return entry
+
